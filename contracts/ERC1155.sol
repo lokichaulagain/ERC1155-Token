@@ -6,16 +6,32 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/finance/PaymentSplitter.sol";
 
-contract MyERC1155 is ERC1155, Ownable, Pausable, ERC1155Supply {
+contract MyERC1155 is
+    ERC1155,
+    Ownable,
+    Pausable,
+    ERC1155Supply,
+    PaymentSplitter
+{
     uint256 public generalPublicMintPrice = 0.01 ether;
     uint256 public vipMintPrice = 0.001 ether;
-    uint256 public totalMaxSupply = 2;
+    uint256 public totalMaxSupply = 20;
+    uint256 maxPerWallet = 2;
+
     bool public generalPublicMintOpen = false;
     bool public vipMintOpen = false;
 
-    constructor()
+    //vipList
+    mapping(address => bool) vipList;
+    mapping(address => uint256) mintedPerWallet;
+
+    //0994845djbd563:true means this is vip
+
+    constructor(address[] memory _payees, uint256[] memory _shares)
         ERC1155("ipfs://Qmaa6TuP2s9pSKczHF4rwWhTKUdygrrDs8RmYYqCjP3Hye/")
+        PaymentSplitter(_payees, _shares)
     {}
 
     //function to edit mint opan and close
@@ -25,6 +41,12 @@ contract MyERC1155 is ERC1155, Ownable, Pausable, ERC1155Supply {
     ) external onlyOwner {
         generalPublicMintOpen = _generalPublicMintStatus;
         vipMintOpen = _vipMintStatus;
+    }
+
+    function addVip(address[] calldata vipAddresses) external onlyOwner {
+        for (uint256 i = 0; i < vipAddresses.length; i++) {
+            vipList[vipAddresses[i]] = true;
+        }
     }
 
     function setURI(string memory newuri) public onlyOwner {
@@ -39,6 +61,25 @@ contract MyERC1155 is ERC1155, Ownable, Pausable, ERC1155Supply {
         _unpause();
     }
 
+    function repetativeTaskFunction(uint256 id, uint256 amount) internal {
+        require(
+            mintedPerWallet[msg.sender] + amount <= maxPerWallet,
+            "Wallet limit has been reached !!!"
+        );
+        //we can only mint certain id 0 and 1 like addidas NFT
+        require(id < 2, "You can only min 0 & 1 id !!! ");
+        //totalSupply is the total amount of tokens in with a given id.
+        require(
+            totalSupply(id) + amount <= totalMaxSupply,
+            "Maxsupply limit has been reached !!!"
+        );
+
+        _mint(msg.sender, id, amount, "");
+
+        //only 2 NFT a single wallet/user can mint
+        mintedPerWallet[msg.sender] += amount;
+    }
+
     function generalPublicMint(uint256 id, uint256 amount) public payable {
         require(generalPublicMintOpen, "Right now generalPublucMint is closed");
         //id=NFT Id and amount=no of NFT
@@ -46,30 +87,17 @@ contract MyERC1155 is ERC1155, Ownable, Pausable, ERC1155Supply {
             msg.value == amount * generalPublicMintPrice,
             "Payment should be exact 0.01 ether !!!"
         );
-
-        //totalSupply is the total amount of tokens in with a given id.
-        require(
-            totalSupply(id) + amount <= totalMaxSupply,
-            "Maxsupply limit has been reached !!!"
-        );
-        //we only mint certain id 0 and 1 like addidas NFt
-        require(id < 2, "You can only min 0 & 1 id !!! ");
-        _mint(msg.sender, id, amount, "");
+        repetativeTaskFunction(id, amount);
     }
 
     function vipMint(uint256 id, uint256 amount) public payable {
         require(vipMintOpen, "Right now vipMint is closed");
+        require(vipList[msg.sender], "You are not the vip");
         require(
             msg.value == amount * vipMintPrice,
             "Payment should be 0.01 ether per NFT"
         );
-        //totalSupply is the total amount of tokens in with a given id.
-        require(
-            totalSupply(id) + amount <= totalMaxSupply,
-            "Maxsupply limit has been reached !!!"
-        );
-        //we only mint certain id 0 and 1 like addidas NFt
-        require(id < 2, "You can only min 0 & 1 id !!! ");
+        repetativeTaskFunction(id, amount);
     }
 
     //To show the NFT we need the complete uri with NFT id
